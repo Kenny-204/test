@@ -705,6 +705,7 @@ let captured = false;
 let capturedLandmarks = null;
 let videoEl, canvasEl, ctx;
 let facingMode = 'user'; // 'user' = front, 'environment' = back
+let isSwitching = false;
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const statusDot = document.getElementById('status-dot');
@@ -1295,7 +1296,7 @@ async function initMediaPipe() {
   });
 
   faceMesh.onResults((results) => {
-    if (captured) return; // don't update canvas after capture
+    if (captured || isSwitching) return;
 
     const video = document.getElementById('video');
     canvasEl.width = video.videoWidth || 640;
@@ -1328,12 +1329,22 @@ const btnToggle = document.getElementById('btn-toggle');
 
 // ─── Start camera (reusable) ──────────────────────────────────────────────────
 async function startCamera() {
-  // Stop existing stream
+  // Block facemesh callbacks during switch
+  const switching = true;
+
+  // Stop existing camera loop first
+  if (camera) {
+    camera.stop();
+    camera = null;
+    // Small delay to let the camera loop fully wind down
+    await new Promise(res => setTimeout(res, 300));
+  }
+
+  // Then kill the stream tracks
   if (videoEl.srcObject) {
     videoEl.srcObject.getTracks().forEach(t => t.stop());
     videoEl.srcObject = null;
   }
-  if (camera) { camera.stop(); camera = null; }
 
   const isFront = facingMode === 'user';
 
@@ -1387,13 +1398,15 @@ btnStart.addEventListener('click', async () => {
 
 // ─── Toggle camera ────────────────────────────────────────────────────────────
 btnToggle.addEventListener('click', async () => {
-  if (captured) return;
+  if (captured || isSwitching) return;
+  isSwitching = true;
   facingMode = facingMode === 'user' ? 'environment' : 'user';
   btnToggle.disabled = true;
   btnToggle.textContent = 'SWITCHING...';
   lastLandmarks = null;
   ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
   await startCamera();
+  isSwitching = false;
 });
 
 // ─── Capture ──────────────────────────────────────────────────────────────────
