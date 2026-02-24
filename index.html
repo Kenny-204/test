@@ -149,15 +149,17 @@
     position: absolute;
     width: 100%; height: 100%;
     object-fit: cover;
-    transform: scaleX(-1);
   }
+
+  #video.mirror { transform: scaleX(-1); }
 
   #canvas {
     position: absolute;
     inset: 0;
     width: 100%; height: 100%;
-    transform: scaleX(-1);
   }
+
+  #canvas.mirror { transform: scaleX(-1); }
 
   /* Overlay labels on camera */
   .cam-overlay {
@@ -585,6 +587,7 @@
 
       <div class="controls">
         <button class="btn" id="btn-start">◉ START CAMERA</button>
+        <button class="btn" id="btn-toggle" disabled title="Switch camera">⇄ FLIP</button>
         <button class="btn primary" id="btn-capture" disabled>⊡ CAPTURE</button>
         <button class="btn" id="btn-reset" disabled>↺ RESET</button>
       </div>
@@ -701,6 +704,7 @@ let lastLandmarks = null;
 let captured = false;
 let capturedLandmarks = null;
 let videoEl, canvasEl, ctx;
+let facingMode = 'user'; // 'user' = front, 'environment' = back
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const statusDot = document.getElementById('status-dot');
@@ -1320,14 +1324,26 @@ async function initMediaPipe() {
   document.getElementById('loading').style.display = 'none';
 }
 
-// ─── Start camera ─────────────────────────────────────────────────────────────
-btnStart.addEventListener('click', async () => {
-  btnStart.disabled = true;
-  btnStart.textContent = 'STARTING...';
+const btnToggle = document.getElementById('btn-toggle');
+
+// ─── Start camera (reusable) ──────────────────────────────────────────────────
+async function startCamera() {
+  // Stop existing stream
+  if (videoEl.srcObject) {
+    videoEl.srcObject.getTracks().forEach(t => t.stop());
+    videoEl.srcObject = null;
+  }
+  if (camera) { camera.stop(); camera = null; }
+
+  const isFront = facingMode === 'user';
+
+  // Mirror only for front camera
+  videoEl.classList.toggle('mirror', isFront);
+  canvasEl.classList.toggle('mirror', isFront);
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720, facingMode: 'user' },
+      video: { width: 1280, height: 720, facingMode },
       audio: false
     });
 
@@ -1340,9 +1356,7 @@ btnStart.addEventListener('click', async () => {
 
     camera = new Camera(videoEl, {
       onFrame: async () => {
-        if (!captured) {
-          await faceMesh.send({ image: videoEl });
-        }
+        if (!captured) await faceMesh.send({ image: videoEl });
       },
       width: videoEl.videoWidth,
       height: videoEl.videoHeight,
@@ -1351,14 +1365,35 @@ btnStart.addEventListener('click', async () => {
     camera.start();
 
     btnStart.textContent = '◉ CAMERA ACTIVE';
+    btnStart.disabled = true;
+    btnToggle.disabled = false;
+    btnToggle.textContent = isFront ? '⇄ BACK CAM' : '⇄ FRONT CAM';
     statusDot.className = 'status-dot warn';
     statusText.textContent = 'SCANNING...';
 
   } catch (e) {
     btnStart.disabled = false;
     btnStart.textContent = '◉ START CAMERA';
-    alert('Camera access denied or unavailable: ' + e.message);
+    alert('Camera error: ' + e.message);
   }
+}
+
+// ─── Start camera button ──────────────────────────────────────────────────────
+btnStart.addEventListener('click', async () => {
+  btnStart.disabled = true;
+  btnStart.textContent = 'STARTING...';
+  await startCamera();
+});
+
+// ─── Toggle camera ────────────────────────────────────────────────────────────
+btnToggle.addEventListener('click', async () => {
+  if (captured) return;
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  btnToggle.disabled = true;
+  btnToggle.textContent = 'SWITCHING...';
+  lastLandmarks = null;
+  ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+  await startCamera();
 });
 
 // ─── Capture ──────────────────────────────────────────────────────────────────
@@ -1371,17 +1406,20 @@ btnCapture.addEventListener('click', () => {
   captured = true;
   capturedLandmarks = lastLandmarks;
 
-  // Take snapshot
+  // Take snapshot — mirror only for front camera
   const snapshotCanvas = document.createElement('canvas');
   snapshotCanvas.width = canvasEl.width;
   snapshotCanvas.height = canvasEl.height;
   const sCtx = snapshotCanvas.getContext('2d');
 
-  // Draw mirrored video frame
-  sCtx.save();
-  sCtx.scale(-1, 1);
-  sCtx.drawImage(videoEl, -snapshotCanvas.width, 0, snapshotCanvas.width, snapshotCanvas.height);
-  sCtx.restore();
+  if (facingMode === 'user') {
+    sCtx.save();
+    sCtx.scale(-1, 1);
+    sCtx.drawImage(videoEl, -snapshotCanvas.width, 0, snapshotCanvas.width, snapshotCanvas.height);
+    sCtx.restore();
+  } else {
+    sCtx.drawImage(videoEl, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+  }
 
   const snapshotWrap = document.getElementById('snapshot-wrap');
   const snapshotImg = document.getElementById('snapshot');
@@ -1403,6 +1441,7 @@ btnCapture.addEventListener('click', () => {
   drawLandmarks(capturedLandmarks);
 
   btnCapture.disabled = true;
+  btnToggle.disabled = true;
   btnReset.disabled = false;
   statusDot.className = 'status-dot warn';
   statusText.textContent = 'CAPTURED';
@@ -1435,6 +1474,7 @@ btnReset.addEventListener('click', () => {
     <div class="placeholder"><span class="phi" style="font-size:32px">⊢⊣</span>Awaiting capture</div>`;
 
   btnCapture.disabled = false;
+  btnToggle.disabled = false;
   btnReset.disabled = true;
   statusDot.className = 'status-dot active';
   statusText.textContent = 'SCANNING...';
