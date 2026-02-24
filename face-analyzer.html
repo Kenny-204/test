@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AURUM — Facial Proportion Analyzer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,600;1,300&display=swap');
+
+  :root {
+    --bg: #080a0c;
+    --surface: #0d1117;
+    --border: #1e2530;
+    --border-bright: #2e3d50;
+    --gold: #c9a84c;
+    --gold-dim: #8a6f2e;
+    --gold-glow: rgba(201,168,76,0.15);
+    --green: #4caf7d;
+    --red: #e05a5a;
+    --text: #d4cfc8;
+    --text-dim: #6b7280;
+    --text-bright: #f0ebe2;
+    --mono: 'Space Mono', monospace;
+    --serif: 'Cormorant Garamond', serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(201,168,76,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(201,168,76,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+
+  .logo {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 300;
+    letter-spacing: 0.2em;
+    color: var(--gold);
+    font-style: italic;
+  }
+
+  .logo-sub {
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .header-right {
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status-dot.active { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .status-dot.warn { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+  .status-dot.error { background: var(--red); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Main layout */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 20px;
+    align-items: start;
+  }
+
+  /* Camera panel */
+  .camera-panel {
+    position: relative;
+  }
+
+  .camera-wrap {
+    position: relative;
+    aspect-ratio: 4/3;
+    background: #000;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .camera-wrap::before,
+  .camera-wrap::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    z-index: 10;
+  }
+  .camera-wrap::before {
+    top: 8px; left: 8px;
+    border-top: 2px solid var(--gold);
+    border-left: 2px solid var(--gold);
+  }
+  .camera-wrap::after {
+    bottom: 8px; right: 8px;
+    border-bottom: 2px solid var(--gold);
+    border-right: 2px solid var(--gold);
+  }
+
+  #video {
+    position: absolute;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+
+  #canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    transform: scaleX(-1);
+  }
+
+  /* Overlay labels on camera */
+  .cam-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .pose-indicator {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    border: 1px solid var(--border-bright);
+    padding: 4px 12px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    backdrop-filter: blur(4px);
+  }
+
+  .pose-indicator.good { border-color: var(--green); color: var(--green); }
+  .pose-indicator.bad { border-color: var(--red); color: var(--red); }
+  .pose-indicator.ok { border-color: var(--gold); color: var(--gold); }
+
+  /* Live metrics bar */
+  .live-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    margin-top: 1px;
+    background: var(--border);
+  }
+
+  .live-metric {
+    background: var(--surface);
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .live-metric-label { color: var(--text-dim); font-size: 10px; letter-spacing: 0.1em; }
+  .live-metric-value { color: var(--gold); font-size: 11px; }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 12px 16px;
+    background: transparent;
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: var(--gold-glow);
+  }
+
+  .btn.primary {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: var(--gold-glow);
+  }
+
+  .btn.primary:hover {
+    background: rgba(201,168,76,0.25);
+  }
+
+  .btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    border-color: var(--border);
+    color: var(--text-dim);
+    background: transparent;
+  }
+
+  /* Right panel */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel {
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .panel-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .panel-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--border-bright);
+    color: var(--text-dim);
+  }
+
+  .panel-badge.gold {
+    border-color: var(--gold-dim);
+    color: var(--gold);
+    background: var(--gold-glow);
+  }
+
+  .panel-body {
+    padding: 14px;
+  }
+
+  /* Score display */
+  .score-big {
+    text-align: center;
+    padding: 20px 0;
+  }
+
+  .score-number {
+    font-family: var(--serif);
+    font-size: 64px;
+    font-weight: 300;
+    color: var(--gold);
+    line-height: 1;
+    display: block;
+  }
+
+  .score-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-top: 4px;
+    display: block;
+  }
+
+  /* Score bar */
+  .score-bar-wrap {
+    margin: 12px 0 6px;
+    position: relative;
+  }
+
+  .score-bar-track {
+    height: 3px;
+    background: var(--border);
+    position: relative;
+  }
+
+  .score-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+    transition: width 0.5s ease;
+    position: relative;
+  }
+
+  .score-bar-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: -4px;
+    width: 2px; height: 11px;
+    background: var(--gold);
+    box-shadow: 0 0 6px var(--gold);
+  }
+
+  /* Ratio rows */
+  .ratio-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ratio-row:last-child { border-bottom: none; }
+
+  .ratio-name { color: var(--text-dim); font-size: 10px; max-width: 140px; }
+  .ratio-values { display: flex; gap: 8px; align-items: center; }
+  .ratio-actual { color: var(--text); font-size: 11px; }
+  .ratio-diff {
+    font-size: 10px;
+    padding: 1px 5px;
+  }
+  .ratio-diff.good { color: var(--green); }
+  .ratio-diff.ok { color: var(--gold); }
+  .ratio-diff.bad { color: var(--red); }
+
+  /* Symmetry bars */
+  .sym-feature {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .sym-label { width: 70px; color: var(--text-dim); font-size: 10px; flex-shrink: 0; }
+
+  .sym-track {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    position: relative;
+  }
+
+  .sym-fill {
+    height: 100%;
+    background: var(--gold);
+    transition: width 0.5s;
+  }
+
+  .sym-pct { width: 40px; text-align: right; font-size: 10px; color: var(--text); }
+
+  /* Placeholder / loading */
+  .placeholder {
+    text-align: center;
+    padding: 30px 20px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 2;
+  }
+
+  .placeholder .phi {
+    font-family: var(--serif);
+    font-size: 48px;
+    color: var(--border-bright);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    padding: 8px 14px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+
+  .tab.active {
+    color: var(--gold);
+    border-bottom-color: var(--gold);
+  }
+
+  .tab-content { display: none; padding: 14px; }
+  .tab-content.active { display: block; }
+
+  /* Loading overlay */
+  #loading {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  .loading-logo {
+    font-family: var(--serif);
+    font-size: 48px;
+    font-weight: 300;
+    color: var(--gold);
+    font-style: italic;
+    letter-spacing: 0.2em;
+    animation: fadeInOut 2s infinite;
+  }
+
+  @keyframes fadeInOut {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  .loading-text {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .loading-bar {
+    width: 200px;
+    height: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+
+  .loading-bar-fill {
+    height: 100%;
+    background: var(--gold);
+    animation: loadBar 1.5s ease-in-out infinite;
+  }
+
+  @keyframes loadBar {
+    0% { width: 0; margin-left: 0; }
+    50% { width: 100%; margin-left: 0; }
+    100% { width: 0; margin-left: 100%; }
+  }
+
+  /* Captured snapshot */
+  #snapshot-wrap {
+    display: none;
+    position: relative;
+    aspect-ratio: 4/3;
+    background: #000;
+    border: 1px solid var(--gold-dim);
+    overflow: hidden;
+    margin-top: 12px;
+  }
+
+  #snapshot {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .snapshot-label {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid var(--gold-dim);
+    padding: 3px 8px;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: var(--gold);
+  }
+
+  /* Marquardt overlay canvas */
+  #marquardt-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .info-note {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.8;
+    padding: 10px 0 0;
+    border-top: 1px solid var(--border);
+    margin-top: 10px;
+  }
+
+  .phi-value { color: var(--gold); }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="loading-logo">Aurum</div>
+  <div class="loading-text">Loading MediaPipe Models</div>
+  <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+</div>
+
+<div class="app">
+  <header>
+    <div>
+      <div class="logo">Aurum</div>
+      <div class="logo-sub">Facial Proportion Analysis System</div>
+    </div>
+    <div class="header-right">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text" style="letter-spacing:0.1em; color: var(--text-dim)">INITIALIZING</span>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Left: Camera -->
+    <div class="camera-panel">
+      <div class="camera-wrap">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div class="cam-overlay">
+          <div class="pose-indicator" id="pose-indicator">ALIGN FACE</div>
+        </div>
+      </div>
+
+      <div class="live-bar">
+        <div class="live-metric">
+          <span class="live-metric-label">SYMMETRY</span>
+          <span class="live-metric-value" id="live-sym">—</span>
+        </div>
+        <div class="live-metric">
+          <span class="live-metric-label">YAW</span>
+          <span class="live-metric-value" id="live-yaw">—</span>
+        </div>
+        <div class="live-metric">
+          <span class="live-metric-label">FACE RATIO</span>
+          <span class="live-metric-value" id="live-ratio">—</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btn-start">◉ START CAMERA</button>
+        <button class="btn primary" id="btn-capture" disabled>⊡ CAPTURE</button>
+        <button class="btn" id="btn-reset" disabled>↺ RESET</button>
+      </div>
+
+      <!-- Captured snapshot shown below camera -->
+      <div id="snapshot-wrap">
+        <img id="snapshot" />
+        <canvas id="marquardt-canvas"></canvas>
+        <div class="snapshot-label">CAPTURED</div>
+      </div>
+    </div>
+
+    <!-- Right: Analysis -->
+    <div class="right-panel">
+
+      <!-- Overall Score -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Overall Harmony Score</span>
+          <span class="panel-badge" id="overall-badge">AWAITING CAPTURE</span>
+        </div>
+        <div class="panel-body" id="overall-body">
+          <div class="placeholder">
+            <span class="phi">φ</span>
+            Capture your face to begin<br>the proportional analysis
+          </div>
+        </div>
+      </div>
+
+      <!-- Detailed analysis tabs -->
+      <div class="panel">
+        <div class="tabs">
+          <div class="tab active" data-tab="golden">Golden Ratio</div>
+          <div class="tab" data-tab="marquardt">Marquardt</div>
+          <div class="tab" data-tab="symmetry">Symmetry</div>
+        </div>
+
+        <div class="tab-content active" id="tab-golden">
+          <div class="placeholder" id="golden-placeholder">
+            <span class="phi" style="font-size:32px">1.618</span>
+            Awaiting capture
+          </div>
+          <div id="golden-results" style="display:none"></div>
+        </div>
+
+        <div class="tab-content" id="tab-marquardt">
+          <div id="marquardt-results">
+            <div class="placeholder">
+              <span class="phi" style="font-size:32px">⬠</span>
+              Awaiting capture
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-symmetry">
+          <div id="symmetry-results">
+            <div class="placeholder">
+              <span class="phi" style="font-size:32px">⊢⊣</span>
+              Awaiting capture
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- MediaPipe via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+<script>
+// ─── Landmark indices ─────────────────────────────────────────────────────────
+const LM = {
+  // Face outline
+  faceTop: 10, faceBtm: 152,
+  faceLeft: 234, faceRight: 454,
+
+  // Eyes
+  leftEyeOuter: 33, leftEyeInner: 133,
+  rightEyeOuter: 362, rightEyeInner: 263,
+  leftEyeTop: 159, leftEyeBot: 145,
+  rightEyeTop: 386, rightEyeBot: 374,
+
+  // Eyebrows
+  leftBrowOuter: 70, leftBrowInner: 107,
+  rightBrowOuter: 300, rightBrowInner: 336,
+
+  // Nose
+  noseTip: 4, noseBridge: 168,
+  noseLeft: 64, noseRight: 294,
+  noseBase: 2,
+
+  // Lips
+  lipLeft: 61, lipRight: 291,
+  lipTop: 13, lipBot: 14,
+  upperLipTop: 0, lowerLipBot: 17,
+
+  // Chin
+  chin: 152,
+
+  // Pupils (iris landmarks 468-472 left, 473-477 right)
+  leftPupil: 468, rightPupil: 473,
+
+  // Additional face width points
+  faceL2: 127, faceR2: 356,
+};
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let faceMesh = null;
+let camera = null;
+let lastLandmarks = null;
+let captured = false;
+let capturedLandmarks = null;
+let videoEl, canvasEl, ctx;
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────────
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const poseIndicator = document.getElementById('pose-indicator');
+const liveSym = document.getElementById('live-sym');
+const liveYaw = document.getElementById('live-yaw');
+const liveRatio = document.getElementById('live-ratio');
+const btnStart = document.getElementById('btn-start');
+const btnCapture = document.getElementById('btn-capture');
+const btnReset = document.getElementById('btn-reset');
+
+// ─── Utility ─────────────────────────────────────────────────────────────────
+function dist(a, b) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+}
+
+function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function lm(landmarks, idx) {
+  return landmarks[idx];
+}
+
+// ─── Measurements ─────────────────────────────────────────────────────────────
+function getMeasurements(landmarks) {
+  const L = (idx) => lm(landmarks, idx);
+  const w = canvasEl.width;
+  const h = canvasEl.height;
+
+  // Scale to pixels
+  function px(p) { return { x: p.x * w, y: p.y * h, z: p.z || 0 }; }
+
+  const faceTop = px(L(LM.faceTop));
+  const faceBtm = px(L(LM.faceBtm));
+  const faceLeft = px(L(LM.faceLeft));
+  const faceRight = px(L(LM.faceRight));
+
+  const leftEyeOuter = px(L(LM.leftEyeOuter));
+  const leftEyeInner = px(L(LM.leftEyeInner));
+  const rightEyeOuter = px(L(LM.rightEyeOuter));
+  const rightEyeInner = px(L(LM.rightEyeInner));
+
+  const leftEyeTop = px(L(LM.leftEyeTop));
+  const leftEyeBot = px(L(LM.leftEyeBot));
+  const rightEyeTop = px(L(LM.rightEyeTop));
+  const rightEyeBot = px(L(LM.rightEyeBot));
+
+  const noseTip = px(L(LM.noseTip));
+  const noseBridge = px(L(LM.noseBridge));
+  const noseLeft = px(L(LM.noseLeft));
+  const noseRight = px(L(LM.noseRight));
+
+  const lipLeft = px(L(LM.lipLeft));
+  const lipRight = px(L(LM.lipRight));
+  const upperLipTop = px(L(LM.upperLipTop));
+  const lowerLipBot = px(L(LM.lowerLipBot));
+  const lipTop = px(L(LM.lipTop));
+  const lipBot = px(L(LM.lipBot));
+
+  const chin = px(L(LM.chin));
+  const leftBrowOuter = px(L(LM.leftBrowOuter));
+  const rightBrowOuter = px(L(LM.rightBrowOuter));
+
+  // Key distances
+  const faceH = dist(faceTop, faceBtm);
+  const faceW = dist(faceLeft, faceRight);
+  const eyeW_L = dist(leftEyeOuter, leftEyeInner);
+  const eyeW_R = dist(rightEyeOuter, rightEyeInner);
+  const eyeSpacing = dist(leftEyeInner, rightEyeInner);
+  const noseW = dist(noseLeft, noseRight);
+  const mouthW = dist(lipLeft, lipRight);
+  const mouthH = dist(upperLipTop, lowerLipBot);
+  const lipH = dist(lipTop, lipBot);
+
+  // Face thirds
+  const browLine = midpoint(leftBrowOuter, rightBrowOuter);
+  const browLinePx = px(browLine);
+  // Actually use the actual brow coords
+  const lBrowOuter = px(L(LM.leftBrowOuter));
+  const rBrowOuter = px(L(LM.rightBrowOuter));
+  const browY = (lBrowOuter.y + rBrowOuter.y) / 2;
+
+  const third1 = Math.abs(browY - faceTop.y);        // hairline to brow
+  const third2 = Math.abs(noseTip.y - browY);         // brow to nose tip
+  const third3 = Math.abs(chin.y - noseTip.y);        // nose tip to chin
+
+  // Nose to chin / lips to chin
+  const lipsMid = (upperLipTop.y + lowerLipBot.y) / 2;
+  const noseToChin = Math.abs(chin.y - noseTip.y);
+  const lipsToChin = Math.abs(chin.y - lipsMid);
+  const noseToLips = Math.abs(lipsMid - noseTip.y);
+
+  // Pupil distance (using eye inner/outer midpoints as approximation)
+  const leftPupilApprox = midpoint(leftEyeOuter, leftEyeInner);
+  const rightPupilApprox = midpoint(rightEyeOuter, rightEyeInner);
+  const leftPupilPx = { x: leftPupilApprox.x * w, y: leftPupilApprox.y * h };
+  const rightPupilPx = { x: rightPupilApprox.x * w, y: rightPupilApprox.y * h };
+  const pupilDist = dist(leftPupilPx, rightPupilPx);
+
+  // Head pose via z-coords
+  const leftZ = L(LM.leftEyeOuter).z || 0;
+  const rightZ = L(LM.rightEyeOuter).z || 0;
+  const yawEstimate = (rightZ - leftZ) * 200; // rough deg estimate
+
+  return {
+    faceH, faceW,
+    eyeW_L, eyeW_R,
+    eyeSpacing,
+    noseW, mouthW, mouthH, lipH,
+    pupilDist,
+    third1, third2, third3,
+    noseToChin, lipsToChin, noseToLips,
+    yawEstimate,
+    // store pixel versions for drawing
+    _px: { faceTop, faceBtm, faceLeft, faceRight, noseTip, chin, leftPupilPx, rightPupilPx, lipLeft, lipRight, noseLeft, noseRight }
+  };
+}
+
+// ─── Golden Ratio Analysis ─────────────────────────────────────────────────────
+const PHI = 1.618033988749895;
+
+function goldenRatioScore(m) {
+  const ratios = [
+    {
+      name: 'Face Length / Width',
+      actual: m.faceH / m.faceW,
+      target: PHI,
+    },
+    {
+      name: 'Mouth Width / Nose Width',
+      actual: m.mouthW / m.noseW,
+      target: PHI,
+    },
+    {
+      name: 'Nose-to-Chin / Lips-to-Chin',
+      actual: m.noseToChin / m.lipsToChin,
+      target: PHI,
+    },
+    {
+      name: 'Pupil Distance / Mouth Width',
+      actual: m.pupilDist / m.mouthW,
+      target: PHI,
+    },
+    {
+      name: 'Face Width / Nose-to-Chin',
+      actual: m.faceW / m.noseToChin,
+      target: PHI,
+    },
+    {
+      name: 'Nose-to-Chin / Nose-to-Lips',
+      actual: m.noseToChin / m.noseToLips,
+      target: PHI,
+    },
+  ];
+
+  ratios.forEach(r => {
+    r.diff = Math.abs(r.actual - r.target);
+    r.pctOff = (r.diff / r.target) * 100;
+    r.score = Math.max(0, 100 - r.pctOff * 3);
+  });
+
+  const overall = ratios.reduce((s, r) => s + r.score, 0) / ratios.length;
+  return { ratios, overall };
+}
+
+// ─── Symmetry Analysis ────────────────────────────────────────────────────────
+function symmetryScore(landmarks) {
+  const w = canvasEl.width;
+  const h = canvasEl.height;
+
+  // Find face midline x
+  const noseX = landmarks[LM.noseTip].x * w;
+
+  // Paired landmark indices (left, right) for major features
+  const pairs = [
+    { name: 'Eyes', left: LM.leftEyeOuter, right: LM.rightEyeOuter },
+    { name: 'Eye inner', left: LM.leftEyeInner, right: LM.rightEyeInner },
+    { name: 'Eyebrow', left: LM.leftBrowOuter, right: LM.rightBrowOuter },
+    { name: 'Nose wing', left: LM.noseLeft, right: LM.noseRight },
+    { name: 'Mouth', left: LM.lipLeft, right: LM.lipRight },
+  ];
+
+  const features = pairs.map(p => {
+    const left = landmarks[p.left];
+    const right = landmarks[p.right];
+
+    // Mirror the right point across the nose midline
+    const leftDistFromMid = Math.abs(left.x * w - noseX);
+    const rightDistFromMid = Math.abs(right.x * w - noseX);
+
+    // Symmetry: how similar are the distances?
+    const maxDist = Math.max(leftDistFromMid, rightDistFromMid);
+    const diff = Math.abs(leftDistFromMid - rightDistFromMid);
+    const symPct = maxDist > 0 ? Math.max(0, (1 - diff / maxDist) * 100) : 100;
+
+    // Also compare y positions
+    const yDiff = Math.abs(left.y - right.y) * h;
+    const yScore = Math.max(0, 100 - yDiff * 3);
+
+    const score = (symPct * 0.7 + yScore * 0.3);
+    return { name: p.name, score: Math.min(100, score) };
+  });
+
+  const overall = features.reduce((s, f) => s + f.score, 0) / features.length;
+  return { features, overall };
+}
+
+// ─── Marquardt Analysis ───────────────────────────────────────────────────────
+// Approximation based on phi-based face rectangles
+function marquardtScore(m) {
+  // Marquardt's key proportions based on phi mask
+  // Width relationships
+  const eyeW_avg = (m.eyeW_L + m.eyeW_R) / 2;
+
+  const checks = [
+    {
+      name: 'Eye width / Nose wing',
+      actual: eyeW_avg / m.noseW,
+      target: 1 / PHI,
+      desc: 'Eye width should be ~0.618× nose width'
+    },
+    {
+      name: 'Face thirds balance',
+      actual: m.third2 / m.third3,
+      target: 1.0,
+      desc: 'Brow-to-nose ≈ nose-to-chin'
+    },
+    {
+      name: 'Mouth / Eye spacing',
+      actual: m.mouthW / m.eyeSpacing,
+      target: PHI - 1,
+      desc: 'Mouth width vs inter-eye distance'
+    },
+    {
+      name: 'Face width / Eye width',
+      actual: m.faceW / eyeW_avg,
+      target: PHI * 2,
+      desc: 'Face should span ~3.236 eye widths'
+    },
+  ];
+
+  checks.forEach(c => {
+    c.diff = Math.abs(c.actual - c.target);
+    c.pctOff = (c.diff / c.target) * 100;
+    c.score = Math.max(0, 100 - c.pctOff * 2.5);
+  });
+
+  const overall = checks.reduce((s, c) => s + c.score, 0) / checks.length;
+  return { checks, overall };
+}
+
+// ─── Live drawing ─────────────────────────────────────────────────────────────
+function drawLandmarks(landmarks) {
+  ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+  if (!landmarks) return;
+
+  const w = canvasEl.width;
+  const h = canvasEl.height;
+
+  // Draw mesh connections (sparse)
+  const CONNECTIONS = [
+    // Jawline
+    [10,338],[338,297],[297,332],[332,284],[284,251],[251,389],[389,356],[356,454],
+    [454,323],[323,361],[361,288],[288,397],[397,365],[365,379],[379,378],[378,400],
+    [400,377],[377,152],[152,148],[148,176],[176,149],[149,150],[150,136],[136,172],
+    [172,58],[58,132],[132,93],[93,234],[234,127],[127,162],[162,21],[21,54],
+    [54,103],[103,67],[67,109],[109,10],
+    // Left eye
+    [33,7],[7,163],[163,144],[144,145],[145,153],[153,154],[154,155],[155,133],
+    [33,246],[246,161],[161,160],[160,159],[159,158],[158,157],[157,173],[173,133],
+    // Right eye
+    [362,382],[382,381],[381,380],[380,374],[374,373],[373,390],[390,249],[249,263],
+    [362,398],[398,384],[384,385],[385,386],[386,387],[387,388],[388,466],[466,263],
+    // Nose
+    [168,6],[6,197],[197,195],[195,5],[5,4],[4,45],[4,275],
+    [33,133],[263,362],
+    // Lips
+    [61,146],[146,91],[91,181],[181,84],[84,17],[17,314],[314,405],[405,321],[321,375],[375,291],
+    [61,185],[185,40],[40,39],[39,37],[37,0],[0,267],[267,269],[269,270],[270,409],[409,291],
+    // Brows
+    [70,63],[63,105],[105,66],[66,107],[107,55],[55,65],[65,52],[52,53],[53,46],
+    [336,296],[296,334],[334,293],[293,300],[300,276],[276,283],[283,282],[282,295],[295,285],
+  ];
+
+  ctx.strokeStyle = 'rgba(201,168,76,0.25)';
+  ctx.lineWidth = 0.5;
+
+  CONNECTIONS.forEach(([a, b]) => {
+    const pa = landmarks[a], pb = landmarks[b];
+    ctx.beginPath();
+    ctx.moveTo(pa.x * w, pa.y * h);
+    ctx.lineTo(pb.x * w, pb.y * h);
+    ctx.stroke();
+  });
+
+  // Key landmark dots
+  const keyPoints = [LM.leftEyeOuter, LM.leftEyeInner, LM.rightEyeOuter, LM.rightEyeInner,
+    LM.noseTip, LM.lipLeft, LM.lipRight, LM.faceLeft, LM.faceRight, LM.faceTop, LM.faceBtm,
+    LM.noseLeft, LM.noseRight];
+
+  ctx.fillStyle = 'rgba(201,168,76,0.8)';
+  keyPoints.forEach(idx => {
+    const p = landmarks[idx];
+    ctx.beginPath();
+    ctx.arc(p.x * w, p.y * h, 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ─── Draw Marquardt phi mask overlay on snapshot ──────────────────────────────
+function drawMarquardtOverlay(landmarks, canvas) {
+  const ctx2 = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx2.clearRect(0, 0, w, h);
+
+  if (!landmarks) return;
+
+  const L = (idx) => ({ x: landmarks[idx].x * w, y: landmarks[idx].y * h });
+
+  const faceLeft = L(LM.faceLeft);
+  const faceRight = L(LM.faceRight);
+  const faceTop = L(LM.faceTop);
+  const faceBtm = L(LM.faceBtm);
+  const noseTip = L(LM.noseTip);
+  const lipLeft = L(LM.lipLeft);
+  const lipRight = L(LM.lipRight);
+  const chin = L(LM.chin);
+
+  const faceW = dist(faceLeft, faceRight);
+  const faceH = dist(faceTop, faceBtm);
+  const cx = (faceLeft.x + faceRight.x) / 2;
+  const cy = (faceTop.y + faceBtm.y) / 2;
+
+  ctx2.strokeStyle = 'rgba(201,168,76,0.7)';
+  ctx2.lineWidth = 1;
+  ctx2.setLineDash([4, 4]);
+
+  // Draw face bounding rect
+  ctx2.strokeRect(faceLeft.x, faceTop.y, faceW, faceH);
+
+  // Draw phi-based horizontal lines
+  const lines = [
+    faceTop.y,
+    faceTop.y + faceH / PHI / PHI,
+    faceTop.y + faceH / PHI,
+    faceBtm.y,
+  ];
+
+  ctx2.strokeStyle = 'rgba(201,168,76,0.4)';
+  lines.forEach(y => {
+    ctx2.beginPath();
+    ctx2.moveTo(faceLeft.x, y);
+    ctx2.lineTo(faceRight.x, y);
+    ctx2.stroke();
+  });
+
+  // Draw phi-based vertical divisions
+  const vLines = [
+    faceLeft.x,
+    faceLeft.x + faceW / PHI / PHI,
+    faceLeft.x + faceW / PHI,
+    faceRight.x,
+  ];
+
+  vLines.forEach(x => {
+    ctx2.beginPath();
+    ctx2.moveTo(x, faceTop.y);
+    ctx2.lineTo(x, faceBtm.y);
+    ctx2.stroke();
+  });
+
+  // Eye width markers
+  ctx2.strokeStyle = 'rgba(100,200,150,0.6)';
+  ctx2.setLineDash([]);
+  ctx2.lineWidth = 1.5;
+
+  const leftEyeO = L(LM.leftEyeOuter);
+  const leftEyeI = L(LM.leftEyeInner);
+  const rightEyeO = L(LM.rightEyeOuter);
+  const rightEyeI = L(LM.rightEyeInner);
+  const eyeY = (leftEyeO.y + leftEyeI.y + rightEyeO.y + rightEyeI.y) / 4;
+
+  // Draw measurement lines
+  function drawMeasureLine(x1, y1, x2, y2, color) {
+    ctx2.strokeStyle = color;
+    ctx2.setLineDash([3, 3]);
+    ctx2.lineWidth = 1;
+    ctx2.beginPath();
+    ctx2.moveTo(x1, y1);
+    ctx2.lineTo(x2, y2);
+    ctx2.stroke();
+    ctx2.setLineDash([]);
+  }
+
+  // Nose width
+  const noseL = L(LM.noseLeft);
+  const noseR = L(LM.noseRight);
+  drawMeasureLine(noseL.x, noseTip.y + 10, noseR.x, noseTip.y + 10, 'rgba(76,175,125,0.8)');
+
+  // Mouth width
+  drawMeasureLine(lipLeft.x, lipLeft.y + 14, lipRight.x, lipRight.y + 14, 'rgba(224,90,90,0.8)');
+
+  // Center line
+  ctx2.strokeStyle = 'rgba(201,168,76,0.5)';
+  ctx2.setLineDash([5, 5]);
+  ctx2.lineWidth = 1;
+  ctx2.beginPath();
+  ctx2.moveTo(cx, faceTop.y);
+  ctx2.lineTo(cx, faceBtm.y);
+  ctx2.stroke();
+  ctx2.setLineDash([]);
+
+  // Phi symbol watermark
+  ctx2.fillStyle = 'rgba(201,168,76,0.15)';
+  ctx2.font = 'bold 80px serif';
+  ctx2.textAlign = 'center';
+  ctx2.textBaseline = 'middle';
+  ctx2.fillText('φ', cx, cy);
+}
+
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+function diffClass(pctOff) {
+  if (pctOff < 5) return 'good';
+  if (pctOff < 15) return 'ok';
+  return 'bad';
+}
+
+function renderResults(measurements) {
+  const gr = goldenRatioScore(measurements);
+  const mq = marquardtScore(measurements);
+  const sym = symmetryScore(capturedLandmarks);
+
+  const overall = (gr.overall * 0.3 + mq.overall * 0.3 + sym.overall * 0.4);
+
+  // Overall
+  const overallBody = document.getElementById('overall-body');
+  const overallBadge = document.getElementById('overall-badge');
+
+  overallBadge.className = 'panel-badge gold';
+  overallBadge.textContent = overall.toFixed(1) + '%';
+
+  overallBody.innerHTML = `
+    <div class="score-big">
+      <span class="score-number">${overall.toFixed(1)}</span>
+      <span class="score-label">Harmony Score</span>
+    </div>
+    <div class="score-bar-wrap">
+      <div class="score-bar-track">
+        <div class="score-bar-fill" style="width:${overall}%"></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px;text-align:center">
+      <div>
+        <div style="color:var(--text-dim);font-size:9px;letter-spacing:0.1em;margin-bottom:3px">GOLDEN</div>
+        <div style="color:var(--gold);font-size:14px">${gr.overall.toFixed(1)}%</div>
+      </div>
+      <div>
+        <div style="color:var(--text-dim);font-size:9px;letter-spacing:0.1em;margin-bottom:3px">MARQUARDT</div>
+        <div style="color:var(--gold);font-size:14px">${mq.overall.toFixed(1)}%</div>
+      </div>
+      <div>
+        <div style="color:var(--text-dim);font-size:9px;letter-spacing:0.1em;margin-bottom:3px">SYMMETRY</div>
+        <div style="color:var(--gold);font-size:14px">${sym.overall.toFixed(1)}%</div>
+      </div>
+    </div>
+    <div class="info-note">
+      Scores reflect proximity to theoretical ideals. Human perception of attractiveness is far more complex than any single metric.
+    </div>
+  `;
+
+  // Golden ratio tab
+  document.getElementById('golden-placeholder').style.display = 'none';
+  const goldenResults = document.getElementById('golden-results');
+  goldenResults.style.display = 'block';
+  goldenResults.innerHTML = `
+    <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline">
+      <span style="color:var(--text-dim);font-size:10px">TARGET φ = <span class="phi-value">1.618</span></span>
+      <span style="color:var(--gold);font-size:13px">${gr.overall.toFixed(1)}%</span>
+    </div>
+    ${gr.ratios.map(r => `
+      <div class="ratio-row">
+        <span class="ratio-name">${r.name}</span>
+        <div class="ratio-values">
+          <span class="ratio-actual">${r.actual.toFixed(3)}</span>
+          <span class="ratio-diff ${diffClass(r.pctOff)}">${r.pctOff < 0.5 ? '✓' : r.pctOff.toFixed(1) + '%'}</span>
+        </div>
+      </div>
+    `).join('')}
+    <div class="info-note">
+      Ratios compared to φ = 1.618. Deviation shown as % off target.
+    </div>
+  `;
+
+  // Marquardt tab
+  document.getElementById('marquardt-results').innerHTML = `
+    <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline">
+      <span style="color:var(--text-dim);font-size:10px">PHI MASK APPROX</span>
+      <span style="color:var(--gold);font-size:13px">${mq.overall.toFixed(1)}%</span>
+    </div>
+    ${mq.checks.map(c => `
+      <div class="ratio-row">
+        <span class="ratio-name">${c.name}</span>
+        <div class="ratio-values">
+          <span class="ratio-actual">${c.actual.toFixed(3)}</span>
+          <span class="ratio-diff ${diffClass(c.pctOff)}">${c.pctOff < 0.5 ? '✓' : c.pctOff.toFixed(1) + '%'}</span>
+        </div>
+      </div>
+    `).join('')}
+    <div class="info-note">
+      Approximate Marquardt phi mask proportions. The original mask is proprietary; this is a phi-based approximation. Phi mask overlay shown on captured image.
+    </div>
+  `;
+
+  // Symmetry tab
+  document.getElementById('symmetry-results').innerHTML = `
+    <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:baseline">
+      <span style="color:var(--text-dim);font-size:10px">BILATERAL SYMMETRY</span>
+      <span style="color:var(--gold);font-size:13px">${sym.overall.toFixed(1)}%</span>
+    </div>
+    ${sym.features.map(f => `
+      <div class="sym-feature">
+        <span class="sym-label">${f.name}</span>
+        <div class="sym-track">
+          <div class="sym-fill" style="width:${f.score}%;background:${f.score > 85 ? 'var(--green)' : f.score > 65 ? 'var(--gold)' : 'var(--red)'}"></div>
+        </div>
+        <span class="sym-pct">${f.score.toFixed(0)}%</span>
+      </div>
+    `).join('')}
+    <div class="info-note">
+      Measures left/right mirror balance of key facial features. Perfect symmetry exists in theory only — slight asymmetry is universal.
+    </div>
+  `;
+}
+
+function updateLiveMetrics(landmarks) {
+  if (!landmarks) return;
+  const m = getMeasurements(landmarks);
+
+  liveSym.textContent = symmetryScore(landmarks).overall.toFixed(0) + '%';
+  liveYaw.textContent = m.yawEstimate.toFixed(1) + '°';
+  liveRatio.textContent = (m.faceH / m.faceW).toFixed(3);
+
+  const yaw = Math.abs(m.yawEstimate);
+  if (yaw < 8) {
+    poseIndicator.className = 'pose-indicator good';
+    poseIndicator.textContent = '✓ GOOD POSITION';
+    btnCapture.disabled = false;
+  } else if (yaw < 18) {
+    poseIndicator.className = 'pose-indicator ok';
+    poseIndicator.textContent = '⚠ SLIGHT ANGLE';
+    btnCapture.disabled = false;
+  } else {
+    poseIndicator.className = 'pose-indicator bad';
+    poseIndicator.textContent = '✗ FACE FORWARD';
+    btnCapture.disabled = false; // still allow capture
+  }
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ─── Init MediaPipe ───────────────────────────────────────────────────────────
+async function initMediaPipe() {
+  videoEl = document.getElementById('video');
+  canvasEl = document.getElementById('canvas');
+  ctx = canvasEl.getContext('2d');
+
+  faceMesh = new FaceMesh({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+  });
+
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
+
+  faceMesh.onResults((results) => {
+    if (captured) return; // don't update canvas after capture
+
+    const video = document.getElementById('video');
+    canvasEl.width = video.videoWidth || 640;
+    canvasEl.height = video.videoHeight || 480;
+
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+      lastLandmarks = results.multiFaceLandmarks[0];
+      drawLandmarks(lastLandmarks);
+      updateLiveMetrics(lastLandmarks);
+
+      statusDot.className = 'status-dot active';
+      statusText.textContent = 'FACE DETECTED';
+    } else {
+      lastLandmarks = null;
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      poseIndicator.className = 'pose-indicator bad';
+      poseIndicator.textContent = 'NO FACE DETECTED';
+      statusDot.className = 'status-dot error';
+      statusText.textContent = 'NO FACE';
+      liveSym.textContent = '—';
+      liveYaw.textContent = '—';
+      liveRatio.textContent = '—';
+    }
+  });
+
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ─── Start camera ─────────────────────────────────────────────────────────────
+btnStart.addEventListener('click', async () => {
+  btnStart.disabled = true;
+  btnStart.textContent = 'STARTING...';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, facingMode: 'user' },
+      audio: false
+    });
+
+    videoEl.srcObject = stream;
+    await new Promise(res => videoEl.onloadedmetadata = res);
+    videoEl.play();
+
+    canvasEl.width = videoEl.videoWidth;
+    canvasEl.height = videoEl.videoHeight;
+
+    camera = new Camera(videoEl, {
+      onFrame: async () => {
+        if (!captured) {
+          await faceMesh.send({ image: videoEl });
+        }
+      },
+      width: videoEl.videoWidth,
+      height: videoEl.videoHeight,
+    });
+
+    camera.start();
+
+    btnStart.textContent = '◉ CAMERA ACTIVE';
+    statusDot.className = 'status-dot warn';
+    statusText.textContent = 'SCANNING...';
+
+  } catch (e) {
+    btnStart.disabled = false;
+    btnStart.textContent = '◉ START CAMERA';
+    alert('Camera access denied or unavailable: ' + e.message);
+  }
+});
+
+// ─── Capture ──────────────────────────────────────────────────────────────────
+btnCapture.addEventListener('click', () => {
+  if (!lastLandmarks) {
+    alert('No face detected. Please ensure your face is visible.');
+    return;
+  }
+
+  captured = true;
+  capturedLandmarks = lastLandmarks;
+
+  // Take snapshot
+  const snapshotCanvas = document.createElement('canvas');
+  snapshotCanvas.width = canvasEl.width;
+  snapshotCanvas.height = canvasEl.height;
+  const sCtx = snapshotCanvas.getContext('2d');
+
+  // Draw mirrored video frame
+  sCtx.save();
+  sCtx.scale(-1, 1);
+  sCtx.drawImage(videoEl, -snapshotCanvas.width, 0, snapshotCanvas.width, snapshotCanvas.height);
+  sCtx.restore();
+
+  const snapshotWrap = document.getElementById('snapshot-wrap');
+  const snapshotImg = document.getElementById('snapshot');
+  snapshotImg.src = snapshotCanvas.toDataURL('image/jpeg', 0.9);
+
+  // Setup marquardt canvas
+  const mqCanvas = document.getElementById('marquardt-canvas');
+  mqCanvas.width = snapshotCanvas.width;
+  mqCanvas.height = snapshotCanvas.height;
+
+  snapshotWrap.style.display = 'block';
+  drawMarquardtOverlay(capturedLandmarks, mqCanvas);
+
+  // Run analysis
+  const measurements = getMeasurements(capturedLandmarks);
+  renderResults(measurements);
+
+  // Freeze the mesh on canvas
+  drawLandmarks(capturedLandmarks);
+
+  btnCapture.disabled = true;
+  btnReset.disabled = false;
+  statusDot.className = 'status-dot warn';
+  statusText.textContent = 'CAPTURED';
+});
+
+// ─── Reset ────────────────────────────────────────────────────────────────────
+btnReset.addEventListener('click', () => {
+  captured = false;
+  capturedLandmarks = null;
+
+  document.getElementById('snapshot-wrap').style.display = 'none';
+
+  // Reset results panels
+  document.getElementById('overall-body').innerHTML = `
+    <div class="placeholder">
+      <span class="phi">φ</span>
+      Capture your face to begin<br>the proportional analysis
+    </div>
+  `;
+  document.getElementById('overall-badge').className = 'panel-badge';
+  document.getElementById('overall-badge').textContent = 'AWAITING CAPTURE';
+
+  document.getElementById('golden-placeholder').style.display = 'block';
+  document.getElementById('golden-results').style.display = 'none';
+
+  document.getElementById('marquardt-results').innerHTML = `
+    <div class="placeholder"><span class="phi" style="font-size:32px">⬠</span>Awaiting capture</div>`;
+
+  document.getElementById('symmetry-results').innerHTML = `
+    <div class="placeholder"><span class="phi" style="font-size:32px">⊢⊣</span>Awaiting capture</div>`;
+
+  btnCapture.disabled = false;
+  btnReset.disabled = true;
+  statusDot.className = 'status-dot active';
+  statusText.textContent = 'SCANNING...';
+});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+window.addEventListener('load', initMediaPipe);
+</script>
+</body>
+</html>
